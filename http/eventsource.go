@@ -26,8 +26,10 @@ type eventSource struct {
 
 // EventSource interface provides methods for sending messages and closing all connections.
 type EventSource interface {
-	// it should implement ServerHTTP method
-	http.Handler
+
+	RemoveConsumer (cons *consumer)
+
+	AddConsumer (cons *consumer)
 
 	// send message to all consumers
 	SendMessage(data, event, id string)
@@ -66,6 +68,7 @@ func controlProcess(es *eventSource) {
 				go func(c *consumer, message []byte) {
 					_, err := c.conn.Write(message)
 					if err != nil {
+						fmt.Println("Write: Connection error.Closing consumer")
 						c.close <- true
 						es.staled <- c
 					}
@@ -81,6 +84,7 @@ func controlProcess(es *eventSource) {
 				c.close <- true
 			}
 			es.consumers.Init()
+			fmt.Println("Closing this eventsource")
 			return
 		case c := <-es.add:
 			es.consumers.PushBack(c)
@@ -114,14 +118,24 @@ func (es *eventSource) Close() {
 	es.close <- true
 }
 
-// ServeHTTP implements http.Handler interface.
-func (es *eventSource) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
+func (es *eventSource) AddConsumer (cons *consumer) {
+	es.add <- cons
+}
+
+func (es *eventSource) RemoveConsumer (cons *consumer) {
+	es.staled <- cons
+}
+func GetConnection (resp http.ResponseWriter, req *http.Request) *consumer {
 	cons, err := newConsumer(resp)
 	if err != nil {
 		log.Print("Can't create connection to a consumer: ", err)
-		return
+		return nil
 	}
-	es.add <- cons
+	return cons
+}
+
+// ServeHTTP implements http.Handler interface.
+func ServeHTTP(cons *consumer) {
 	// wait until EventSource closes all connection
 	<-cons.close
 }
